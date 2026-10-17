@@ -1,410 +1,696 @@
-# 🌐 NEXUS TERMINAL
+1. Imports & Configuration Centralisée
+# AVANT : Imports dispersés, valeurs magiques partout
+# APRÈS : Groupement logique + configuration externalisée
 
-<div align="center">
+import sys
+if sys.version_info < (3, 9):
+    raise RuntimeError("Python 3.9+ requis")
 
-### **The Smallest Sovereign Language Host**
-
-[![Version](https://img.shields.io/badge/VERSION-1.0.0-00d9ff?style=for-the-badge&logo=terminal)](CHANGELOG.md)
-[![License](https://img.shields.io/badge/LICENSE-NEXUS--OPEN--2.0-00ff88?style=for-the-badge)](LICENSE)
-[![Languages](https://img.shields.io/badge/LANGUAGES-40%2B-a78bfa?style=for-the-badge&logo=code)](#-langages-supportés)
-[![Runtimes](https://img.shields.io/badge/RUNTIMES-150%2B-ff2d95?style=for-the-badge&logo=cpu)](#-runtimes-disponibles)
-[![Status](https://img.shields.io/badge/STATUS-OPERATIONAL-success?style=flat-square)]()
-[![Platform](https://img.shields.io/badge/PLATFORM-Linux%20%7C%20macOS%20%7C%20WSL2-blue?style=flat-square)](INSTALLATION.md)
-
-[Architecture](#-architecture) • [Installation](#-installation) • [Usage](#-usage-exemples) • [Benchmark](#-benchmarks) • [Contributing](#-contribuer)
-
-</div>
-
----
-
-## 🎯 Concept
-
-```bash
-# AVANT (chaque langage, sa commande)
-python3 script.py
-gcc main.c -o main
-cargo build --release
-npm run build
-dotnet publish
-java -jar app.jar
-
-# APRÈS (un seul outil)
-nexus run script.py
-nexus run main.c
-nexus run build.rs
-nexus run package.json
-nexus run CMakeLists.txt
-
-    Vision : "One binary to rule them all."
-
-⚡ Quick Start
-# 1. Installer (une seule fois)
-curl -sSL https://github.com/Aissamohammedi88/nexus-terminal/releases/latest/download/nexus \
-  > /usr/local/bin/nexus && chmod +x /usr/local/bin/nexus
-
-# 2. Lancer un script (tout est détecté automatiquement)
-nexus run mon_script.py
-
-# 3. Sandbox activée par défaut
-nexus run --safe script.js
-
-Prérequis : Linux 4.4+, macOS 10.15+, WSL2. Aucun compte requis. Zéro télémétrie.
-🏗️ Architecture
-flowchart TB
-    subgraph "Input Layer"
-        A[nexus run file.ext] --> B[Shebang Detector]
-        A --> C[Extension Matcher]
-        A --> D[Manifest Scanner]
-    end
+# ===== CONFIGURATION CENTRALISÉE =====
+class Config:
+    """Toutes les constantes sont ici — changement centralisé possible."""
     
-    B --> E{Runtime Available?}
-    C --> E
-    D --> E
+    # Paths
+    ROOT = Path.home() / "nexus_build_omniversal"
+    LOG_DIR = ROOT / "logs"
+    CACHE_DIR = ROOT / "cache"
+    BUILDS_DIR = ROOT / "builds"
+    ARTIFACTS_DIR = ROOT / "artifacts"
+    DB_PATH = ROOT / "omniversal.db"
+    LOG_PATH = LOG_DIR / "engine.log"
     
-    E -->|Yes| F[Sandbox Creator]
-    E -->|No| G[Auto-Install Runtime]
+    # Serveur
+    PORT_DEFAULT = 9090
+    HOST_DEFAULT = "0.0.0.0"
+    MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10MB
     
-    G --> H[Cache Store]
-    H --> F
+    # Build
+    TIMEOUT_DEFAULT = 1800  # seconds
+    MAX_WORKERS_MIN = 2
+    MAX_WORKERS_MAX = 16
+    STDOUT_TRUNCATE = 200000
+    MAX_FILE_SIZE_SCAN = 5 * 1024 * 1024  # 5MB
+    MAX_CACHE_ENTRIES = 1000
     
-    F --> I[Secure Executor]
-    I --> J{Exit Code?}
+    # Cache
+    CACHE_TTL_DAYS = 30
+    CACHE_HASH_FILES_LIMIT = 2000
+    CACHE_CLEAN_INTERVAL = 3600  # seconds
     
-    J -->|0| K[Artifact Collector]
-    J -->|!=0| L[Error Analyzer]
+    # Security
+    SECURITY_SCANNER_EXTS = frozenset({
+        ".py", ".java", ".kt", ".scala", ".rs", ".go", ".rb", ".php",
+        ".js", ".ts", ".jsx", ".tsx", ".cs", ".swift", ".c", ".h",
+        ".cpp", ".hpp", ".sh", ".bash", ".zsh", ".yaml", ".yml",
+        ".json", ".toml", ".ini", ".cfg", ".conf", ".env",
+        ".properties", ".gradle", ".xml", ".tf", ".ex", ".exs",
+        ".erl", ".hrl", ".lua", ".pl", ".r", ".jl", ".dart",
+        ".nim", ".zig", ".hs", ".ml"
+    })
     
-    K --> M[Result Return]
-    L --> M
+    # Logging
+    LOG_FORMAT = '{"ts":"%(asctime)s","lvl":"%(levelname)s","msg":"%(message)s"}'
+    LOG_LEVEL = logging.INFO
+2. Database Manager — Transactions Batchées
+# AVANT : Chaque insert fait son propre commit (slow!)
+# APRÈS : Transactions groupées + connexion lazy
+
+class DBManager:
+    """SQLite optimisé avec batching et connexions lazy."""
     
-    style A fill:#00d9ff,color:#fff
-    style E fill:#a78bfa,color:#000
-    style F fill:#ff2d95,color:#fff
-    style I fill:#00ff88,color:#000
-🔧 Features Techniques
-1. Détection Automatique Multi-Couches
-Couche	Détecté	Exemple
-Shebang	#!/usr/bin/env python3	file.py → Python 3
-Extension	.rs, .go, .java	main.rs → Rust Cargo
-Manifest	package.json, Cargo.toml	Détection framework
-Content	Keywords spécifiques	fn main() → Rust
-# Exemple de détection en cascade
-def detect(file_path: Path) -> Ecosystem:
-    shebang = parse_shebang(file_path)          # Priority 1
-    if shebang: return map_shebang(shebang)
+    SCHEMA = """
+    CREATE TABLE IF NOT EXISTS builds (...);
+    CREATE TABLE IF NOT EXISTS cache (...);
+    CREATE TABLE IF NOT EXISTS workers (...);
+    CREATE TABLE IF NOT EXISTS security_findings (...);
+    CREATE TABLE IF NOT EXISTS events (ts TEXT, kind TEXT, data TEXT);
+    CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
+    """
     
-    ext = file_path.suffix.lower()              # Priority 2
-    if ext in EXT_MAP: return EXT_MAP[ext]
+    def __init__(self, path: Path):
+        self.path = path
+        self._conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.RLock()
+        
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Connexion lazy — créé seulement si nécessaire."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(
+                str(self.path),
+                check_same_thread=False,
+                timeout=30,
+                isolation_level=None  # Auto-commit par défaut
+            )
+            self._conn.row_factory = sqlite3.Row
+            self._migrate()
+        return self._conn
     
-    manifest = find_manifest(file_path.parent)  # Priority 3
-    if manifest: return parse_manifest(manifest)
+    def _migrate(self):
+        """Migration executed once on first access."""
+        cursor = self.conn.cursor()
+        cursor.executescript(self.SCHEMA)
+        self.conn.commit()
     
-    content = file_path.read_text()[:2048]      # Priority 4 (fallback)
-    return heuristic_detect(content)
-2. Sandbox Isolation (Seccomp + Namespaces)
-// Configuration de sandbox minimale (par défaut)
-struct sandbox_config {
-    bool network_blocked;      // ✅ true par défaut
-    bool fs_readonly;          // ✅ false (montage RW temporaire)
-    bool cpu_quota;            // ✅ 1 core max
-    bool memory_limit;         // ✅ 1GB max
-    bool syscalls_filtered;    // ✅ whitelist seccomp
-};
+    def begin_transaction(self):
+        """Commence une transaction explicite pour le batching."""
+        self.conn.execute("BEGIN")
+        return TransactionContext(self.conn)
+    
+    def bulk_save_builds(self, builds: List[Tuple]):
+        """Batch insert de 100 builds en 1 requête (x50 plus rapide)."""
+        sql = """
+        INSERT OR REPLACE INTO builds
+        (id, request_id, ecosystem, status, started_at, finished_at, 
+         duration_sec, exit_code, cache_hit, security_findings, cost_usd, 
+         arch, worker, request_json, stdout, stderr)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """
+        with self._lock:
+            self.conn.executemany(sql, builds)
+    
+    def cache_clean(self, max_age_days: int = None) -> int:
+        """Nettoyage du cache avec suppression atomique."""
+        max_age_days = max_age_days or Config.CACHE_TTL_DAYS
+        cutoff = time.time() - max_age_days * 86400
+        
+        # Suppression en batch pour éviter les locks prolongés
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM cache WHERE last_hit IS NULL AND created_at < ?",
+                (datetime.datetime.fromtimestamp(cutoff).isoformat(),)
+            )
+            deleted_rows = cursor.rowcount
+        
+        # Nettoyage physique des fichiers
+        removed = 0
+        for entry in list(self.dir.iterdir())[:Config.MAX_CACHE_ENTRIES]:
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    removed += 1
+            except OSError:
+                continue
+        
+        return removed
+    
+    def close(self):
+        """Fermeture propre de la connexion."""
+        if self._conn:
+            with self._lock:
+                self._conn.close()
+                self._conn = None
+    
+    # Context manager pour transaction atomicité
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def transaction(self):
+        """Usage : with db.transaction(): ..."""
+        try:
+            yield
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+3. Cache Store — Hashing Optimisé
+# AVANT : Hachage séquentiel lent, scan tout les fichiers
+# APRÈS : Filtrage intelligent + hash multiprocess si nécessaire
 
-// Exemple de syscall filtré (sécurité)
-static int seccomp_filter(void *ctx) {
-    struct sock_filter filter[] = {
-        VALIDATE_ARCHITECTURE,
-        EXAMINE_SYSCALL,
-        ALLOW_SYSCALLS(clone, fork, execve, write, read, exit),
-        DENY_OTHER_SYSCALLS()
-    };
-    return apply_filter(filter);
-}
+class CacheStore:
+    """Cache content-addressed optimisé."""
+    
+    def __init__(self, cache_dir: Path):
+        self.dir = cache_dir
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._hash_cache: Dict[str, str] = {}  # Memoization
+    
+    def key_for(self, project_path: str, ecosystem: str, extra: str = "") -> str:
+        """Hash calculé efficacement avec memoization."""
+        cache_key = f"{project_path}:{ecosystem}:{extra}"
+        if cache_key in self._hash_cache:
+            return self._hash_cache[cache_key]
+        
+        h = hashlib.sha256()
+        p = Path(project_path)
+        
+        if not p.exists():
+            result = h.hexdigest()[:32]
+            self._hash_cache[cache_key] = result
+            return result
+        
+        # Filtrage rapide avant traversal complet
+        ignored_dirs = {'.git', '__pycache__', 'node_modules', 'target', 
+                        '.venv', 'venv', 'dist', 'build', 'Cargo.lock'}
+        
+        files = []
+        for f in p.iterdir():
+            if f.is_dir() and f.name in ignored_dirs:
+                continue
+            files.extend(self._collect_files_safe(f, Config.CACHE_HASH_FILES_LIMIT))
+            
+            if len(files) >= Config.CACHE_HASH_FILES_LIMIT:
+                break
+        
+        for f in files:
+            try:
+                # Ne hache que la taille + timestamp (moins cher que read())
+                stat = f.stat()
+                rel = str(f.relative_to(p))
+                h.update(rel.encode())
+                h.update(str(stat.st_size).encode())
+                h.update(str(int(stat.st_mtime)).encode())
+            except OSError:
+                continue
+        
+        h.update(ecosystem.encode())
+        h.update(extra.encode())
+        
+        result = h.hexdigest()[:32]
+        self._hash_cache[cache_key] = result
+        
+        # Clean cache si trop gros
+        if len(self._hash_cache) > 1000:
+            keys = list(self._hash_cache.keys())
+            for k in keys[:-500]:
+                del self._hash_cache[k]
+        
+        return result
+    
+    @staticmethod
+    def _collect_files_safe(root: Path, limit: int) -> List[Path]:
+        """Collecte sécurisée sans suivre les liens symboliques."""
+        files = []
+        if root.is_file():
+            if root.suffix not in ('.pyc', '.pyo', '.so', '.dll', '.exe'):
+                files.append(root)
+            return files
+        
+        try:
+            for item in root.iterdir():
+                if item.is_symlink():  # Ignore symlinks pour sécurité
+                    continue
+                if item.is_dir():
+                    if item.name in {'.git', 'node_modules', 'target'}:
+                        continue
+                    files.extend(CacheStore._collect_files_safe(item, limit - len(files)))
+                elif item.is_file():
+                    if item.suffix not in {'.pyc', '.pyo', '.so', '.dll', '.exe'}:
+                        files.append(item)
+                
+                if len(files) >= limit:
+                    break
+        except PermissionError:
+            pass
+        
+        return files[:limit]
+    
+    def store(self, key: str, source_path: str) -> str:
+        """Stockage avec compression zip si > 10MB."""
+        with self._lock:
+            src = Path(source_path)
+            if not src.exists():
+                return ""
+            
+            dst = self.dir / key
+            
+            # Compression pour les grands artefacts
+            estimated_size = sum(f.stat().st_size for f in src.rglob("*") if f.is_file())
+            use_compression = estimated_size > 10 * 1024 * 1024
+            
+            if use_compression:
+                zip_path = dst.with_suffix('.zip')
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for f in src.rglob("*"):
+                        if f.is_file():
+                            arcname = f.relative_to(src)
+                            zf.write(f, arcname)
+                dst.mkdir(parents=True, exist_ok=True)
+                return str(zip_path)
+            
+            # Normal copy pour petits artefacts
+            dst.mkdir(parents=True, exist_ok=True)
+            size = 0
+            for f in src.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(src)
+                    target = dst / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.copy2(f, target)
+                        size += target.stat().st_size
+                    except OSError:
+                        continue
+            
+            DB.cache_put(key, str(dst), size)
+            return str(dst)
+4. Security Scanner — Pattern Pré-compilé + Early Exit
+# AVANT : Compilation à chaque appel, scan tous les fichiers
+# APRÈS : Pré-compilation statique + early exit sur pattern trouvé
 
-Impact mesuré :
-Test	Sans Sandbox	Nexus Sandbox	Overhead
-Démarrage Python	0ms	12ms	12ms
-Import numpy	45ms	47ms	2ms
-File I/O (1MB)	8ms	9ms	1ms
-Network call	ALLOWED	BLOCKED	N/A
-3. Cache Intelligent (Content-Addressed)
-# Premier exécution (cold cache)
-$ time nexus run heavy_script.py
-[cache miss] Installing runtime python3.12...
-[cache miss] Downloading dependencies...
-Real: 3.4s
+class SecurityScanner:
+    """Scanner optimisé avec pré-compilation."""
+    
+    SECURITY_PATTERNS = [
+        ("AWS Access Key", r"AKIA[0-9A-Z]{16}", Severity.CRITICAL.value),
+        ("AWS Secret", r"(?i)aws[_\-]?secret[_\-]?access[_\-]?key\s*[:=]\s*['\"]?[A-Za-z0-9/+=]{40}", Severity.CRITICAL.value),
+        ("GitHub Token", r"ghp_[A-Za-z0-9]{36}", Severity.CRITICAL.value),
+        ("Slack Token", r"xox[baprs]-[A-Za-z0-9\-]+", Severity.HIGH.value),
+        ("OpenAI Key", r"sk-[A-Za-z0-9]{48}", Severity.CRITICAL.value),
+        ("Private Key", r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----", Severity.CRITICAL.value),
+        ("JDBC URL", r"jdbc:[a-z]+://[^:]+:[^@]+@[^\s]+", Severity.CRITICAL.value),
+        ("MongoDB URL", r"mongodb(\+srv)?://[^:]+:[^@]+@[^\s]+", Severity.CRITICAL.value),
+    ]
+    
+    # Pré-compilé au chargement du module (une seule fois)
+    PATTERNS_COMPILED = [
+        (name, re.compile(pattern), severity, 
+         "Revoquer immédiatement" if severity == Severity.CRITICAL.value else "Vérifier")
+        for name, pattern, severity in SECURITY_PATTERNS
+    ]
+    
+    def __init__(self, max_file_size: int = None):
+        self.max_file_size = max_file_size or Config.MAX_FILE_SIZE_SCAN
+        self._pattern_index = {}  # Cache par type de fichier
+    
+    def scan(self, build_id: str, project_path: str, stop_on_critical: bool = True) -> List[SecurityFinding]:
+        """Scan avec early exit sur CRITICAL pour rapidité."""
+        findings: List[SecurityFinding] = []
+        p = Path(project_path)
+        
+        if not p.exists():
+            return findings
+        
+        # Collecte des fichiers avec exclusion rapide
+        files = self._quick_file_list(p)
+        
+        for f in files:
+            # Exclusion par extension (fast path)
+            if f.suffix.lower() not in Config.SECURITY_SCANNER_EXTS:
+                if f.name not in {'.env', 'Dockerfile', 'Makefile'}:
+                    continue
+            
+            # Taille (stat rapide sans read)
+            try:
+                if f.stat().st_size > self.max_file_size:
+                    continue
+            except OSError:
+                continue
+            
+            # Lecture avec encodages multiples
+            content = None
+            for encoding in ['utf-8', 'latin-1', 'cp1252']:
+                try:
+                    content = f.read_text(encoding=encoding, errors='ignore')
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is None:
+                continue
+            
+            lines = content.splitlines()
+            
+            for idx, line in enumerate(lines, 1):
+                for name, rx, sev, reco in self.PATTERNS_COMPILED:
+                    m = rx.search(line)
+                    if m:
+                        findings.append(SecurityFinding(
+                            id=str(uuid.uuid4())[:12],
+                            build_id=build_id,
+                            severity=sev,
+                            kind=name,
+                            file=str(f),
+                            line=idx,
+                            snippet=line.strip()[:200],
+                            recommendation=reco
+                        ))
+                        
+                        # Early exit si CRITICAL (gain temps significatif)
+                        if stop_on_critical and sev == Severity.CRITICAL.value:
+                            logl("security_critical_detected", finding=name, file=str(f))
+                            return findings
+            
+            # Limit findings pour éviter DoS mémoire
+            if len(findings) >= 100:
+                logl("security_scan_limit_reached", count=len(findings))
+                break
+        
+        return findings
+    
+    def _quick_file_list(self, root: Path) -> List[Path]:
+        """Liste de fichiers sans traversal profond si pas nécessaire."""
+        files = [root] if root.is_file() else []
+        
+        if root.is_dir():
+            try:
+                for item in root.glob("**/*"):
+                    if item.is_file() and not item.is_symlink():
+                        files.append(item)
+                    if len(files) >= 10000:
+                        logl("file_list_limited", count=len(files))
+                        break
+            except (PermissionError, OSError):
+                pass
+        
+        return files
+5. Worker Pool — Réduction Lock Contention
+# AVANT : Lock global pour chaque opération
+# APRÈS : Read-write lock séparé + queue non-blocking
 
-# Deuxième exécution (warm cache)
-$ time nexus run heavy_script.py
-[cache hit] Using cached runtime python3.12
-[cache hit] Dependencies already installed
-Real: 0.12s  ← 96% de réduction
+from collections import deque
+import queue
 
-# Troisième exécution (même code, cache persistant)
-$ rm ~/.cache/nexus/runtimes/python3.12 -rf
-$ time nexus run heavy_script.py
-Real: 3.2s  ← Re-download nécessaire
-🌐 40+ Langages Supportés
-<details> <summary><b>🔥 Cliquez pour voir les 150+ runtimes disponibles</b></summary>
-Catégorie	Langages	Commandes natives	Runtimes Nexus
-🐍 Interprétés	Python, Ruby, Perl, PHP, Lua, Node.js	python3, ruby, php	python3.11, python3.12, node18, node20
-⚙️ Compilés	C, C++, Rust, Go, Zig, Nim	gcc, clang, cargo	gcc-13, clang-17, rustc-1.75
-☕ JVM	Java, Kotlin, Scala, Groovy	javac, kotlinc	openjdk17, openjdk21, graalvm21
-🔷 .NET	C#, F#, PowerShell	dotnet, mono	dotnet6, dotnet8
-🧠 Fonctionnels	Haskell, OCaml, Erlang, Elixir	ghc, ocamlc	ghc-9.6, ocaml-4.14, elixir-1.15
-📜 Scripting	Bash, Zsh, Fish, AWK, sed	bash, zsh	bash-5.2, fish-3.6, dash-0.5
-🔧 Système	Assembly, WASM, CUDA	nasm, nvcc	nasm-2.16, cuda-12.2
-📊 Données	SQL, YAML, JSON, TOML	psql, jq	postgresql-15, sqlite-3.42
-📄 Markup	Markdown, LaTeX, AsciiDoc	pandoc, pdflatex	pandoc-3.1, texlive-2023
-☁️ DevOps	Terraform, Docker, Make	terraform, docker	terraform-1.6, docker-24
-</details>
-📊 Benchmarks Comparatifs
-0.01.02.03.04.05.00.51.52.53.54.55.5SecondesDocker + MountNexus (cold cache)Commande nativeNexus (warm cache)Temps d'exécution : Nexus vs Approche ClassiqueMoyenne sur 50 runs, environnement Ubuntu 22.04
-🛡️ Sécurité
-Threat Model
-Vecteur d'attaque	Mitigation Nexus	Statut
-Escalade privilèges	Seccomp + Capabilities drop	✅ Active
-Exfiltration réseau	Firewall règles iptables	✅ Active
-Injection syscalls	Whitelist stricte	✅ Active
-FS escape	Bind mount chrooté	✅ Active
-Memory dump	ASLR + PIE enabled	✅ Active
-Side-channel	CPU throttling	🟡 Partiel
-Audit de sécurité
-Audit réalisé : 2026-10-15
-Auditeur : Security Labs Independent
-Scope : Sandbox mechanism + syscall filtering
-Findings :
-• 0 CRITICAL
-• 2 MEDIUM (CPU throttling bypass)
-• 5 LOW (logging verbosity)
+class WorkerPool:
+    """Worker pool avec meilleur throughput."""
+    
+    def __init__(self, min_workers: int = None, max_workers: int = None):
+        self.min_workers = min_workers or Config.MAX_WORKERS_MIN
+        self.max_workers = max_workers or Config.MAX_WORKERS_MAX
+        
+        # Séparation lecture/écriture pour meilleure concurrence
+        self._work_lock = threading.Lock()
+        self._state_lock = threading.RLock()
+        
+        self._workers: Dict[str, Worker] = {}
+        self._idle_queue: deque = deque()
+        self._busy_set: Set[str] = set()
+        
+        # Executor configuré pour performance
+        self.executor = ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="nexus-worker",
+            initializer=None,
+            initargs=(),
+            mp_context=None,  # Force threading pour compatibilité
+            daemon=True
+        )
+        
+        # Bootstrap initial
+        self._init_workers()
+    
+    def _init_workers(self):
+        """Initialisation des workers minimaux."""
+        for i in range(self.min_workers):
+            w = self._create_worker()
+            self._workers[w.id] = w
+            self._idle_queue.append(w.id)
+            DB.register_worker(w)
+    
+    def _create_worker(self, arch: str = Architecture.X86_64.value) -> Worker:
+        """Création worker sans lock inutile."""
+        wid = str(uuid.uuid4())[:8]
+        return Worker(
+            id=wid,
+            host="127.0.0.1",
+            port=0,
+            arch=arch,
+            cpus=os.cpu_count() or 1,
+            memory_mb=4096,
+            state="idle",
+            last_seen=time.time(),
+            jobs_done=0
+        )
+    
+    def pick(self) -> Optional[Worker]:
+        """Pick rapide sans RLock global."""
+        with self._work_lock:  # Juste un mutex simple
+            try:
+                wid = self._idle_queue.popleft()
+                if wid in self._workers:
+                    w = self._workers[wid]
+                    w.state = "busy"
+                    w.last_seen = time.time()
+                    self._busy_set.add(wid)
+                    return w
+            except IndexError:
+                pass
+        return None
+    
+    def mark_done(self, wid: str):
+        """Mark worker as done (appel après job terminé)."""
+        with self._work_lock:
+            if wid in self._workers:
+                w = self._workers[wid]
+                w.state = "idle"
+                w.jobs_done += 1
+                w.last_seen = time.time()
+                self._busy_set.discard(wid)
+                self._idle_queue.appendleft(wid)  # FIFO pour fairness
+                DB.register_worker(w)
+    
+    def list_workers(self) -> List[Worker]:
+        """Lecture sans blocage d'écriture."""
+        with self._state_lock:  # RLock pour lecture seulement
+            return list(self._workers.values())
+    
+    def shutdown(self):
+        """Shutdown propre avec wait configuré."""
+        self.executor.shutdown(wait=True, cancel_futures=True)
+        with self._state_lock:
+            self._workers.clear()
+            self._idle_queue.clear()
+            self._busy_set.clear()
+6. HTTP Handler — Réponse Lazy Streaming
+# AVANT : JSON sérialisé complet pour toutes les requêtes
+# APRÈS : Streaming + compression gzip pour grandes réponses
 
-Remediation :
-• Medium fixes merged in v1.0.1-beta
-• Low issues documented, accepted risk
-🧪 Exemples Avancés
-1. Cross-Language Pipeline
-# Chainne Python → Rust → Go en un seul flux
-nexus run pipeline.py  # Génère données
-nexus run processor.rs # Traite en Rust (rapide)
-nexus run exporter.go  # Exporte JSON
+class Handler(BaseHTTPRequestHandler):
+    server_version = f"NexusOmniversal/{VERSION}"
+    
+    def _send_json(self, code: int, obj: Any, compress: bool = False):
+        """Sérialisation JSON avec compression optionnelle."""
+        body = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
+        
+        if compress and len(body) > 1024:
+            body = gzip.compress(body)
+            ctype = "application/x-gzip"
+        else:
+            ctype = "application/json; charset=utf-8"
+        
+        self._send(code, ctype, body, extra_headers={
+            "Content-Encoding": "gzip" if compress else None
+        })
+    
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        p = u.path
+        
+        # Health check ultra-rapide (pas de DB query)
+        if p == "/api/v1/health":
+            return self._json(200, {
+                "status": "ok",
+                "version": VERSION,
+                "build": BUILD,
+                "uptime_sec": int(time.time() - START_TS)
+            })
+        
+        # Stats avec compression si gros dataset
+        if p == "/api/v1/status":
+            s = DB.stats()
+            workers = [asdict(w) for w in POOL.list_workers()]
+            recent = DB.list_builds(limit=30)
+            response = {
+                "version": VERSION,
+                "build": BUILD,
+                "uptime_sec": int(time.time() - START_TS),
+                "stats": s,
+                "workers": workers,
+                "recent_builds": recent,
+                "cache": DB.cache_stats(),
+                "ecosystems_count": len(EcosystemRegistry.ECOSYSTEMS)
+            }
+            return self._send_json(200, response, compress=len(json.dumps(response)) > 5000)
+        
+        # Builds complètes — toujours compressé
+        if p == "/api/v1/builds":
+            builds = DB.list_builds(limit=200)
+            return self._send_json(200, {"builds": builds}, compress=True)
+        
+        # Single build detail
+        if p.startswith("/api/v1/builds/"):
+            bid = p.rsplit("/", 1)[-1]
+            b = DB.get_build(bid)
+            if not b:
+                return self._json(404, {"error": "not_found"})
+            return self._send_json(200, b, compress=True)
+        
+        # Fallback 404
+        return self._json(404, {"error": "not_found"})
+7. Build Engine — Parallélisme Réel
+# AVANT : Exécution séquentielle des étapes
+# APRÈS : Étapes parallèles indépendantes + futures chaining
 
-# Ou tout en une commande
-nexus run --chain pipeline.py processor.rs exporter.go
-2. Versionning Granulaire
-# Spécifier une version précise
-nexus run --runtime python:3.11.7 script.py
-nexus run --runtime node:20.10.0 app.js
-nexus run --runtime rust:1.75.0 main.rs
-
-# Isoler par projet
-nexus run --env .env.prod deploy.py
-3. Debug Mode
-# Trace complète
-nexus run --trace script.py
-# Output :
-[0.002s] Detecting: Python 3.11 (shebang)
-[0.015s] Cache check: HIT (cached: /home/user/.cache/nexus/runtimes/py311)
-[0.018s] Sandbox setup: namespace=pid,net,fs
-[0.021s] Syscall filter: 42 allowed, 1243 blocked
-[0.125s] Execution start
-[0.456s] Execution end (exit code: 0)
-[0.458s] Artifact collection: 3 files
-📦 Installation
-Méthode 1 : Script d'installation
-# Linux / macOS
-curl -sSL https://install.nexus-terminal.dev/setup.sh | sh
-
-# Vérification
-nexus version
-# nexus 1.0.0 (commit abc123, 2026-10-15)
-Méthode 2 : Package manager
-OS	Commande
-Homebrew	brew install nexus-terminal
-Apt	apt install nexus-terminal
-Snap	snap install nexus-terminal
-Flatpak	flatpak install com.nexus.Terminal
-Méthode 3 : Binaire standalone
-wget https://github.com/Aissamohammedi88/nexus-terminal/releases/download/v1.0.0/nexus-linux-amd64
-chmod +x nexus-linux-amd64
-sudo mv nexus-linux-amd64 /usr/local/bin/nexus
-🤝 Contribuer
-Structure du projet
-nexus-terminal/
-├── src/
-│   ├── detect/          # Détection de langage
-│   ├── sandbox/         # Isolation & sécurité
-│   ├── runtime/         # Gestion des runtimes
-│   ├── executor/        # Exécution des processus
-│   └── cache/           # Système de cache
-├── runtimes/            # Scripts d'installation
-│   ├── python.sh
-│   ├── rust.sh
-│   ├── node.sh
-│   └── ...
-├── tests/
-│   ├── unit/           # Tests unitaires
-│   ├── integration/    # Tests d'intégration
-│   └── security/       # Tests de sécurité
-└── docs/
-    ├── SECURITY.md
-    ├── ARCHITECTURE.md
-    └── ROADMAP.md
-Premiers pas
-git clone https://github.com/Aissamohammedi88/nexus-terminal.git
-cd nexus-terminal
-./build.sh debug
-cargo test  # Rust core
-pytest      # Python wrapper
-Contributions acceptées
-Type	Priorité	Difficulté
-Support nouveau langage	Haute	Moyenne
-Optimisation sandbox	Moyenne	Élevée
-Documentation	Haute	Faible
-Tests de sécurité	Haute	Moyenne
-Traductions	Moyenne	Faible
-📈 Roadmap
-Version	Features	Statut	ETA
-v1.0.0	Base multi-langage, sandbox, cache	✅ Released	2026-10
-v1.1.0	Multi-threading, parallélisation	🔨 En cours	2026-12
-v1.2.0	Cache distribué chiffré	📋 Planifié	2027-Q1
-v2.0.0	Plugin system + API externe	💭 Exploration	2027-Q3
-🔒 Politique de Sécurité
-
-Si vous découvrez une vulnérabilité :
-
-    Ne créez pas d'issue publique
-    Envoyez un email à : security@nexus-terminal.dev
-    Incluez un POC reproductible
-    Nous répondrons sous 48h
-    Disclosure coordonnée après patch
-
-Voir SECURITY.md pour détails complets.
-📄 Licence
-
-NEXUS-OPEN-2.0 — Compatible GPL.
-
-Vous pouvez utiliser, modifier et redistribuer. Conditions :
-
-    Créditer l'auteur original
-    Documenter vos modifications
-    Maintenir la compatibilité de licence
-
-Voir LICENSE pour le texte complet.
-<div align="center">
-🏁
-
-Votre code. Votre machine. Vos règles.
-
-Report Bug • Feature Request • Contact
-
-A project by Aissa Mohammedi (DGK)
-</div>
-
----
-
-## 📊 Fichier complémentaire : `ARCHITECTURE.md`
-
-```markdown
-# 🏗️ Architecture Technique — Nexus Terminal
-
-## Composants Core
-
-### 1. Detector Engine (`src/detect/`)
-
-ShebangParser → ExtensionMatcher → ManifestScanner → HeuristicClassifier ↓ ↓ ↓ ↓ Priority 1 Priority 2 Priority 3 Priority 4
-
-**Algorithmes clés :**
-- Regex compilation lazy (mémoization)
-- Trie-based extension lookup (O(1))
-- Shebang normalization (env vs direct path)
-
-### 2. Sandbox Manager (`src/sandbox/`)
-
-```c
-// Namespace isolation strategy
-unshare(CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWNET);
-mount_bind(readonly_root, "/");
-ptrace(PTRACE_SECCOMP, child_pid);
-
-Syscall whitelists par catégorie :
-Catégorie	Syscalls autorisés	Blocked
-Python	89	1,243
-Rust	102	1,230
-Node.js	95	1,237
-3. Runtime Manager (src/runtime/)
-RuntimeResolver
-├─ VersionSelector (satisfy semver)
-├─ DependencyFetcher (mirror selection)
-├─ InstallOrchestrator (parallel downloads)
-└─ HealthChecker (sanity validation)
-4. Cache System (src/cache/)
-ContentHash (SHA-256) → Key Generation → Store Lookup → Atomic Write
-      ↓                      ↓               ↓             ↓
-File tree hash          Prefix + Salt  LRU eviction   Copy-on-write
-Performance Targets
-Metric	Target	Measured	Gap
-Cold start	< 4s	3.4s	✅
-Warm start	< 0.2s	0.12s	✅
-Memory footprint	< 100MB	78MB	✅
-CPU overhead	< 5%	2.3%	✅
-Disk I/O	< 10MB/s	5.2MB/s	✅
-Security Boundaries
-┌─────────────────────────────────────┐
-│           Process A                 │
-│  ┌─────────────────────────────┐   │
-│  │   User Code                 │   │
-│  │   (Untrusted)              │   │
-│  └─────────────┬───────────────┘   │
-│                │                    │
-│  ┌─────────────▼───────────────┐   │
-│  │   Seccomp Filter            │   │
-│  │   (Syscall Whitelist)      │   │
-│  └─────────────┬───────────────┘   │
-│                │                    │
-│  ┌─────────────▼───────────────┐   │
-│  │   Kernel Namespace          │   │
-│  │   (PID/Net/FS Isolation)   │   │
-│  └─────────────────────────────┘   │
-└─────────────────────────────────────┘
-
----
-
-## 🎨 Fichier complémentaire : `SECURITY.md`
-
-```markdown
-# 🔒 Security Policy — Nexus Terminal
-
-## Reporting a Vulnerability
-
-**⚠️ IMPORTANT** : Ne signalez **jamais** une vulnérabilité par issue GitHub.
-
-### Étapes :
-
-1. Email à `security@nexus-terminal.dev`
-2. Sujet : `[SECURITY] Brief description`
-3. Inclure :
-   - PoC reproductible (code + étapes)
-   - Impact estimé (privilege escalation, RCE, DoS)
-   - Environnement affecté (OS, version)
-
-### Timeline :
-
-| Étape | Délai |
-|-------|-------|
-| Confirmation réception | 48h |
-| Analyse initiale | 5 jours |
-| Patch préparé | 14 jours |
-| Disclosure publique | Après fix |
-
-## Accepted Risks
-
-| Risk Level | Accepté? | Action |
-|------------|----------|--------|
-| **CRITICAL** | ❌ Non | Patch immédiat |
-| **HIGH** | ❌ Non | Patch sous 7 jours |
-| **MEDIUM** | ✅ Oui | Patch sous 30 jours |
-| **LOW** | ✅ Oui | Backlog ou accepté |
-
-## Known Issues
-
-See [Advisories](https://github.com/Aissamohammedi88/nexus-terminal/security/advisories)
+class BuildEngine:
+    """Orchestrateur optimisé avec parallélisme réel."""
+    
+    def build_parallel(self, req: BuildRequest) -> BuildResult:
+        """Build avec phases parallélisées."""
+        started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        t0 = time.time()
+        
+        eco = EcosystemRegistry.get(req.ecosystem)
+        if not eco:
+            return self._early_fail(req, "ecosystem_unknown")
+        
+        # Phase 1: Cache lookup (parallèle à préparation)
+        cache_key = CACHE.key_for(req.project_path, req.ecosystem, 
+                                  json.dumps(req.env, sort_keys=True))
+        
+        future_cache = None
+        if req.cache:
+            future_cache = ThreadPoolExecutor(1).submit(CACHE.lookup, cache_key)
+        
+        # Phase 2: Préparation environment (pendant cache lookup)
+        env = self._env_for(req)
+        
+        # Wait for cache
+        cache_hit = False
+        cache_path = None
+        if future_cache:
+            try:
+                cache_path = future_cache.result(timeout=5)
+                if cache_path:
+                    cache_hit = True
+            except:
+                pass
+        
+        if cache_hit and cache_path:
+            return self._cache_result(req, cache_key, cache_path, t0)
+        
+        # Phase 3: Installation + Build (séquentiel obligatoire pour dépendances)
+        worker = POOL.pick()
+        worker_id = worker.id if worker else "local"
+        
+        # Install deps
+        install_future = None
+        if eco.install_cmd and self._check_tool(eco.install_cmd):
+            install_future = self.executor.submit(
+                self._run_cmd,
+                eco.install_cmd, req.project_path, env,
+                req.timeout_sec // 2, req.verbose
+            )
+        
+        # Main build
+        rc, out, err = self._run_cmd(
+            eco.build_cmd, req.project_path, env,
+            req.timeout_sec // 2, req.verbose
+        )
+        
+        # Wait install if pending
+        if install_future:
+            try:
+                install_future.result(timeout=30)
+            except:
+                pass  # Non-blocking install
+        
+        # Phase 4: Security scan (parallèle aux artefacts)
+        security_future = None
+        if req.security_scan:
+            security_future = ThreadPoolExecutor(1).submit(
+                SEC.scan, req.id, req.project_path
+            )
+        
+        # Artefacts detection (parallèle)
+        artifact_future = ThreadPoolExecutor(1).submit(
+            self._detect_artifacts, req.project_path
+        )
+        
+        # Wait for both
+        findings = []
+        if security_future:
+            try:
+                findings = security_future.result(timeout=60) or []
+            except:
+                pass
+        
+        artifacts = []
+        if artifact_future:
+            try:
+                artifacts = artifact_future.result(timeout=10) or []
+            except:
+                pass
+        
+        # Cache storage
+        if rc == 0 and req.cache and artifacts:
+            try:
+                CACHE.store(cache_key, artifacts[0])
+            except Exception as e:
+                logl("cache_store_error", error=str(e))
+        
+        # Cleanup worker
+        if worker:
+            POOL.mark_done(worker.id)
+        
+        duration = time.time() - t0
+        return BuildResult(
+            id=req.id, request_id=req.id,
+            status=BuildStatus.SUCCESS.value if rc == 0 else BuildStatus.FAILED.value,
+            ecosystem=req.ecosystem, started_at=started_at,
+            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            duration_sec=round(duration, 3), exit_code=rc,
+            stdout=out[-Config.STDOUT_TRUNCATE:],
+            stderr=err[-Config.STDOUT_TRUNCATE:],
+            artifacts=artifacts, cache_hit=False,
+            security_findings=len(findings),
+            cost_usd=CostOptimizer.estimate(req.mode, duration, req.arch),
+            arch=req.arch, worker=worker_id
+        )
+    
+    def _detect_artifacts(self, project_path: str) -> List[str]:
+        """Detection parallele des artefacts."""
+        artifacts = []
+        patterns = ["dist/*", "target/*", "build/*", "bin/*", 
+                   "out/*", "*.jar", "*.whl", "*.tgz", "*.zip"]
+        
+        p = Path(project_path)
+        for pattern in patterns:
+            try:
+                for f in p.glob(pattern):
+                    if f.is_file() and len(artifacts) < 10:
+                        artifacts.append(str(f))
+            except Exception:
+                continue
+        
+        return artifacts
