@@ -1,0 +1,11 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://repo.or.cz/tinycc.git
+	fetch = +refs/heads/mob:refs/remotes/origin/mob
+[branch "mob"]
+	remote = origin
+	merge = refs/heads/mob
